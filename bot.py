@@ -1,21 +1,22 @@
 import os
+import asyncio
 import yt_dlp
-from pyrogram import Client, filters, idle
 
+from pyrogram import Client, filters, idle
 from pytgcalls import PyTgCalls
 from pytgcalls.types.input_stream import AudioPiped, AudioVideoPiped
 from pytgcalls.types.input_stream.quality import HighQualityAudio, HighQualityVideo
 
-# ================= ENV CONFIG =================
+# ================= CONFIG =================
 
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# =============================================
+# =========================================
 
 app = Client(
-    "render_vc_bot",
+    "vc_bot",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
@@ -25,14 +26,13 @@ call = PyTgCalls(app)
 
 # ================= YT-DLP =================
 
-ydl_opts = {
-    "format": "bestaudio/best",
-    "quiet": True,
-    "noplaylist": True
-}
+def search_youtube(query):
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "quiet": True,
+        "noplaylist": True
+    }
 
-
-def yt_search(query):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(f"ytsearch:{query}", download=False)["entries"][0]
         return info["title"], info["url"]
@@ -40,52 +40,52 @@ def yt_search(query):
 # ================= COMMANDS =================
 
 @app.on_message(filters.command("start"))
-async def start(_, msg):
-    await msg.reply(
+async def start(_, m):
+    await m.reply(
         "🎵 VC Bot Ready\n\n"
-        "/play song name - audio\n"
-        "/vplay song name - video\n"
-        "/stop - stop stream"
+        "/play song\n"
+        "/vplay song\n"
+        "/stop"
     )
 
 
 @app.on_message(filters.command("play"))
-async def play(_, msg):
+async def play(_, m):
 
-    if len(msg.command) < 2:
-        return await msg.reply("Usage: /play song name")
+    if len(m.command) < 2:
+        return await m.reply("Usage: /play song name")
 
-    query = " ".join(msg.command[1:])
-    wait = await msg.reply("🔍 Searching...")
+    query = " ".join(m.command[1:])
+    msg = await m.reply("🔍 Searching...")
 
     try:
-        title, stream = yt_search(query)
+        title, stream = search_youtube(query)
 
         await call.join_group_call(
-            msg.chat.id,
+            m.chat.id,
             AudioPiped(stream, HighQualityAudio())
         )
 
-        await wait.edit(f"🎵 Playing Audio:\n{title}")
+        await msg.edit(f"🎵 Playing Audio:\n{title}")
 
     except Exception as e:
-        await wait.edit(f"❌ Error:\n{e}")
+        await msg.edit(f"Error:\n{e}")
 
 
 @app.on_message(filters.command("vplay"))
-async def vplay(_, msg):
+async def vplay(_, m):
 
-    if len(msg.command) < 2:
-        return await msg.reply("Usage: /vplay song name")
+    if len(m.command) < 2:
+        return await m.reply("Usage: /vplay song name")
 
-    query = " ".join(msg.command[1:])
-    wait = await msg.reply("🔍 Searching video...")
+    query = " ".join(m.command[1:])
+    msg = await m.reply("🔍 Searching Video...")
 
     try:
-        title, stream = yt_search(query)
+        title, stream = search_youtube(query)
 
         await call.join_group_call(
-            msg.chat.id,
+            m.chat.id,
             AudioVideoPiped(
                 stream,
                 HighQualityAudio(),
@@ -93,19 +93,19 @@ async def vplay(_, msg):
             )
         )
 
-        await wait.edit(f"📺 Playing Video:\n{title}")
+        await msg.edit(f"📺 Playing Video:\n{title}")
 
     except Exception as e:
-        await wait.edit(f"❌ Error:\n{e}")
+        await msg.edit(f"Error:\n{e}")
 
 
 @app.on_message(filters.command("stop"))
-async def stop(_, msg):
+async def stop(_, m):
     try:
-        await call.leave_group_call(msg.chat.id)
-        await msg.reply("⏹ Stopped")
+        await call.leave_group_call(m.chat.id)
+        await m.reply("⏹ Stopped")
     except Exception as e:
-        await msg.reply(f"Error: {e}")
+        await m.reply(str(e))
 
 
 # ================= MAIN =================
@@ -113,9 +113,8 @@ async def stop(_, msg):
 async def main():
     await app.start()
     await call.start()
-    print("Bot Started")
+    print("Bot Running...")
     await idle()
     await app.stop()
 
-import asyncio
 asyncio.get_event_loop().run_until_complete(main())
