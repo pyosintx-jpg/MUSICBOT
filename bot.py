@@ -5,9 +5,9 @@ from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineK
 from pyrogram.errors import UserNotParticipant
 from pyrogram.enums import ChatType
 
-# ==================== py-tgcalls 2.x ====================
+# ==================== py-tgcalls Correct Imports ====================
 from pytgcalls import PyTgCalls
-from pytgcalls.types import AudioPiped
+from pytgcalls.types.input_stream import AudioPiped
 from pytgcalls.types.input_stream.quality import HighQualityAudio
 from pytgcalls.types import Update
 
@@ -79,7 +79,8 @@ def download_audio(q):
 
         if not os.path.exists(filename):
             files = glob.glob(f'{downloads_dir}/{vid_id}.*')
-            filename = files[0] if files else filename
+            if files:
+                filename = files[0]
 
         return {
             'file': filename,
@@ -87,7 +88,6 @@ def download_audio(q):
             'artist': clean_artist(info.get('title', ''), info.get('uploader', '')),
             'duration': info.get('duration', 0),
             'thumb': info.get('thumbnail') or 'https://telegra.ph/file/2f7debf856695e0a17296.png',
-            'requester': None
         }
 
 
@@ -95,9 +95,7 @@ async def ensure_assistant_joined(cid):
     try:
         await user.get_chat_member(cid, "me")
         return True
-    except UserNotParticipant:
-        pass
-    except Exception:
+    except:
         pass
 
     try:
@@ -114,7 +112,7 @@ async def ensure_assistant_joined(cid):
         await asyncio.sleep(2)
         return True
     except Exception as e:
-        logger.error(f"Assistant join failed: {e}")
+        logger.error(f"Join failed: {e}")
         return False
 
 
@@ -124,7 +122,7 @@ async def send_now_playing(cid, song, queue_list):
         f"🎼 **Song :** {song['title']}\n"
         f"🎙 **Artist :** {song['artist']}\n"
         f"⏳ **Duration :** {format_duration(song['duration'])}\n"
-        f"🙋‍♂️ **Requested By :** {song['requester']}\n\n"
+        f"🙋‍♂️ **Requested By :** {song.get('requester', 'Anonymous')}\n\n"
     )
 
     if queue_list:
@@ -223,6 +221,7 @@ async def play(_, m: Message):
         await msg.edit(f"❌ Error: {str(e)[:150]}")
 
 
+# Rest of the handlers (skip, pause, resume, stop, queue) same as previous version
 @app.on_message(filters.command(["skip"]))
 async def skip(_, m: Message):
     if m.chat.id in active:
