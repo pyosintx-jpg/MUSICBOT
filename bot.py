@@ -1,25 +1,7 @@
 #!/usr/bin/env python3
 import os, asyncio, logging, re, glob, sys
-from pyrogram import Client, filters, idle
-from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import UserNotParticipant
-from pyrogram.enums import ChatType
 
-# ==================== py-tgcalls Imports (Fixed) ====================
-from pytgcalls import PyTgCalls
-try:
-    from pytgcalls.types.input_stream import AudioPiped
-    from pytgcalls.types.input_stream.quality import HighQualityAudio
-except ImportError:
-    # Fallback for some versions
-    from pytgcalls.types import AudioPiped
-    from pytgcalls.types import HighQualityAudio
-
-from pytgcalls.types import Update
-
-import yt_dlp
-
-# ===================== Railway Fixes =====================
+# ===================== Railway Setup =====================
 os.makedirs("/tmp/music_cache", exist_ok=True)
 downloads_dir = "/tmp/music_cache"
 
@@ -29,6 +11,35 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
+
+from pyrogram import Client, filters, idle
+from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import UserNotParticipant
+from pyrogram.enums import ChatType
+
+import yt_dlp
+
+# ===================== Dynamic py-tgcalls Import =====================
+try:
+    from pytgcalls import PyTgCalls
+    from pytgcalls.types import Update
+    
+    # Try different possible import paths
+    try:
+        from pytgcalls.types.input_stream import AudioPiped
+        from pytgcalls.types.input_stream.quality import HighQualityAudio
+        logger.info("Using new import style (input_stream)")
+    except ImportError:
+        try:
+            from pytgcalls.types import AudioPiped, HighQualityAudio
+            logger.info("Using old import style")
+        except ImportError:
+            from pytgcalls import AudioPiped, HighQualityAudio
+            logger.info("Using direct import")
+            
+except Exception as e:
+    logger.error(f"py-tgcalls import failed: {e}")
+    raise
 
 # ===================== Config =====================
 API_ID = int(os.getenv("API_ID"))
@@ -66,27 +77,21 @@ def download_audio(q):
         'outtmpl': f'{downloads_dir}/%(id)s.%(ext)s',
         'quiet': True,
         'no_warnings': True,
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
+        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
     }
 
     search = q if q.startswith('http') else f'scsearch:{q}'
 
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(search, download=True)
-        if 'entries' in info:
-            info = info['entries'][0]
+        if 'entries' in info: info = info['entries'][0]
 
         vid_id = info.get('id', 'unknown')
         filename = f'{downloads_dir}/{vid_id}.mp3'
 
         if not os.path.exists(filename):
             files = glob.glob(f'{downloads_dir}/{vid_id}.*')
-            if files:
-                filename = files[0]
+            if files: filename = files[0]
 
         return {
             'file': filename,
@@ -98,51 +103,45 @@ def download_audio(q):
 
 
 async def ensure_assistant_joined(cid):
-    try:
-        await user.get_chat_member(cid, "me")
-        return True
-    except:
-        pass
-
-    try:
-        me = await user.get_me()
-        await app.add_chat_members(cid, me.id)
-        await asyncio.sleep(2)
-        return True
-    except:
-        pass
-
-    try:
-        link = await app.export_chat_invite_link(cid)
-        await user.join_chat(link)
-        await asyncio.sleep(2)
-        return True
-    except Exception as e:
-        logger.error(f"Join failed: {e}")
-        return False
+    for _ in range(2):
+        try:
+            await user.get_chat_member(cid, "me")
+            return True
+        except:
+            pass
+        try:
+            me = await user.get_me()
+            await app.add_chat_members(cid, me.id)
+            await asyncio.sleep(2)
+            return True
+        except:
+            pass
+        try:
+            link = await app.export_chat_invite_link(cid)
+            await user.join_chat(link)
+            await asyncio.sleep(2)
+            return True
+        except:
+            pass
+    return False
 
 
 async def send_now_playing(cid, song, queue_list):
-    caption = (
-        "🎵 **𝐍𝐨𝐰 𝐏𝐥𝐚𝐲𝐢𝐧𝐠**\n\n"
-        f"🎼 **Song :** {song['title']}\n"
-        f"🎙 **Artist :** {song['artist']}\n"
-        f"⏳ **Duration :** {format_duration(song['duration'])}\n"
-        f"🙋‍♂️ **Requested By :** {song.get('requester', 'Anonymous')}\n\n"
-    )
+    caption = f"""🎵 **Now Playing**
 
+🎼 **Song :** {song['title']}
+🎙 **Artist :** {song['artist']}
+⏳ **Duration :** {format_duration(song['duration'])}
+🙋‍♂️ **Requested By :** {song.get('requester', 'Anonymous')}
+"""
     if queue_list:
-        caption += "📋 **Up Next:**\n"
+        caption += "\n📋 **Up Next:**\n"
         for i, s in enumerate(queue_list[:5], 1):
             caption += f"**{i}.** {s['title']}\n"
-        if len(queue_list) > 5:
-            caption += f"\n➕ +{len(queue_list)-5} more"
 
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⏸", callback_data="pause"),
-         InlineKeyboardButton("▶️", callback_data="resume")],
-        [InlineKeyboardButton("⏭", callback_data="skip"),
-         InlineKeyboardButton("⏹", callback_data="end")]
+        [InlineKeyboardButton("⏸", callback_data="pause"), InlineKeyboardButton("▶️", callback_data="resume")],
+        [InlineKeyboardButton("⏭", callback_data="skip"), InlineKeyboardButton("⏹", callback_data="end")]
     ])
 
     try:
@@ -154,27 +153,23 @@ async def send_now_playing(cid, song, queue_list):
 async def play_next(cid):
     if cid not in queues or not queues[cid]:
         return
-
     song = queues[cid].pop(0)
     try:
         audio = AudioPiped(song['file'], HighQualityAudio())
         await calls.change_stream(cid, audio)
         active[cid] = song
         await send_now_playing(cid, song, queues.get(cid, []))
-        logger.info(f"Now Playing: {song['title']}")
     except Exception as e:
-        logger.error(f"Play next error: {e}")
+        logger.error(f"Play error: {e}")
         await asyncio.sleep(2)
         await play_next(cid)
 
 
 # ===================== Handlers =====================
-
 @app.on_callback_query()
-async def callback_handler(_, query: CallbackQuery):
+async def callback(_, query: CallbackQuery):
     data = query.data
     cid = query.message.chat.id
-
     if data == "pause":
         await calls.pause_stream(cid)
         await query.answer("⏸ Paused")
@@ -189,109 +184,83 @@ async def callback_handler(_, query: CallbackQuery):
         queues.pop(cid, None)
         active.pop(cid, None)
         await query.answer("⏹ Stopped")
-        await query.message.edit_caption("⏹ **Music Stopped**")
 
 
 @app.on_message(filters.command("play"))
-async def play(_, m: Message):
+async def play_command(_, m: Message):
     if len(m.command) < 2:
         return await m.reply("❌ `/play <song name or link>`")
-
+    
     q = m.text.split(None, 1)[1]
     cid = m.chat.id
-    msg = await m.reply("🔍 **Searching...**")
+    msg = await m.reply("🔍 Searching...")
 
     try:
         if m.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
             if not await ensure_assistant_joined(cid):
-                return await msg.edit("❌ Bot ko **Admin** banao (Invite Users permission)")
+                return await msg.edit("❌ Bot ko Admin banao!")
 
-        await msg.edit("⬇️ **Downloading...**")
+        await msg.edit("⬇️ Downloading...")
         song = await asyncio.to_thread(download_audio, q)
         song['requester'] = m.from_user.mention if m.from_user else "Anonymous"
 
-        if cid not in queues:
-            queues[cid] = []
+        if cid not in queues: queues[cid] = []
 
         if cid not in active:
-            audio = AudioPiped(song['file'], HighQualityAudio())
-            await calls.join_group_call(cid, audio)
+            await calls.join_group_call(cid, AudioPiped(song['file'], HighQualityAudio()))
             active[cid] = song
             await msg.delete()
             await send_now_playing(cid, song, [])
         else:
             queues[cid].append(song)
-            await msg.edit(f"✅ **Queued:** {song['title'][:45]}...")
+            await msg.edit(f"✅ Queued: {song['title'][:40]}")
     except Exception as e:
-        logger.error(f"Play error: {e}")
-        await msg.edit(f"❌ Error: {str(e)[:150]}")
+        await msg.edit(f"❌ Error: {str(e)[:100]}")
 
 
+# Other commands (skip, pause, resume, stop, queue) - short version
 @app.on_message(filters.command(["skip"]))
-async def skip(_, m: Message):
-    if m.chat.id in active:
-        await m.reply("⏭ **Skipped**")
-        await play_next(m.chat.id)
-    else:
-        await m.reply("❌ Nothing is playing")
-
+async def skip_cmd(_, m): 
+    await play_next(m.chat.id) if m.chat.id in active else await m.reply("❌ Not playing")
 
 @app.on_message(filters.command("pause"))
-async def pause(_, m: Message):
-    try:
-        await calls.pause_stream(m.chat.id)
-        await m.reply("⏸ **Paused**")
-    except:
-        await m.reply("❌ Not playing")
-
+async def pause_cmd(_, m):
+    await calls.pause_stream(m.chat.id)
+    await m.reply("⏸ Paused")
 
 @app.on_message(filters.command("resume"))
-async def resume(_, m: Message):
-    try:
-        await calls.resume_stream(m.chat.id)
-        await m.reply("▶️ **Resumed**")
-    except:
-        await m.reply("❌ Not paused")
-
+async def resume_cmd(_, m):
+    await calls.resume_stream(m.chat.id)
+    await m.reply("▶️ Resumed")
 
 @app.on_message(filters.command(["stop", "end"]))
-async def stop(_, m: Message):
-    try:
-        await calls.leave_group_call(m.chat.id)
-        queues.pop(m.chat.id, None)
-        active.pop(m.chat.id, None)
-        await m.reply("⏹ **Music Stopped**")
-    except:
-        await m.reply("❌ Not in voice chat")
-
+async def stop_cmd(_, m):
+    await calls.leave_group_call(m.chat.id)
+    queues.pop(m.chat.id, None)
+    active.pop(m.chat.id, None)
+    await m.reply("⏹ Stopped")
 
 @app.on_message(filters.command("queue"))
-async def queue_cmd(_, m: Message):
+async def queue_cmd(_, m):
     cid = m.chat.id
     if cid not in active:
-        return await m.reply("📭 **Nothing playing**")
-    text = "📋 **QUEUE**\n\n"
-    if cid in queues and queues[cid]:
-        for i, s in enumerate(queues[cid], 1):
-            text += f"**{i}.** {s['title']}\n"
-    else:
-        text += "Empty"
+        return await m.reply("📭 Nothing playing")
+    text = "📋 **QUEUE**\n\n" + "\n".join(f"{i+1}. {s['title']}" for i,s in enumerate(queues.get(cid, []))) or "Empty"
     await m.reply(text)
 
 
 @calls.on_stream_end()
-async def on_stream_end(_, update: Update):
+async def on_end(_, update):
     await play_next(update.chat_id)
 
 
-# ===================== Main =====================
+# ===================== Start =====================
 async def main():
     await app.start()
     await user.start()
     await calls.start()
-    logger.info("🎵 Music Bot Started Successfully on Railway!")
+    logger.info("✅ Music Bot Started on Railway!")
     await idle()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
