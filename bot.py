@@ -1,145 +1,91 @@
-import asyncio
+import os
 import yt_dlp
-
-from pyrogram import Client, filters
-from pyrogram.idle import idle
+from pyrogram import Client, filters, idle
 
 from pytgcalls import PyTgCalls
-from pytgcalls.types.input_stream import (
-    AudioPiped,
-    AudioVideoPiped
-)
+from pytgcalls.types.input_stream import AudioPiped, AudioVideoPiped
+from pytgcalls.types.input_stream.quality import HighQualityAudio, HighQualityVideo
 
-from pytgcalls.types.input_stream.quality import (
-    HighQualityAudio,
-    HighQualityVideo
-)
+# ================= ENV CONFIG =================
 
-# ================= CONFIG =================
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-API_ID = 34848798
-API_HASH = "210df233d07183ee955143092259dabb"
-BOT_TOKEN = "8713743302:AAHCiUsj36bl3nTPnjmGtlk0Ut-k0t4xae8"
-
-# ==========================================
+# =============================================
 
 app = Client(
-    "vcplayerbot",
+    "render_vc_bot",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
 
-call_py = PyTgCalls(app)
+call = PyTgCalls(app)
 
-# ================= YTDLP =================
+# ================= YT-DLP =================
 
 ydl_opts = {
-    "format": "best",
+    "format": "bestaudio/best",
     "quiet": True,
     "noplaylist": True
 }
 
 
 def yt_search(query):
-
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(f"ytsearch:{query}", download=False)["entries"][0]
+        return info["title"], info["url"]
 
-        info = ydl.extract_info(
-            f"ytsearch:{query}",
-            download=False
-        )["entries"][0]
-
-        title = info["title"]
-        url = info["url"]
-
-        return title, url
-
-
-# ================= START =================
+# ================= COMMANDS =================
 
 @app.on_message(filters.command("start"))
-async def start(_, message):
+async def start(_, msg):
+    await msg.reply(
+        "🎵 VC Bot Ready\n\n"
+        "/play song name - audio\n"
+        "/vplay song name - video\n"
+        "/stop - stop stream"
+    )
 
-    text = """
-🎵 Group VC Music Bot
-
-Commands:
-
-/play song name
-→ audio stream
-
-/vplay song name
-→ video stream
-
-/stop
-→ stop streaming
-"""
-
-    await message.reply_text(text)
-
-
-# ================= AUDIO PLAY =================
 
 @app.on_message(filters.command("play"))
-async def play(_, message):
+async def play(_, msg):
 
-    if len(message.command) < 2:
-        return await message.reply_text(
-            "Usage:\n/play song name"
-        )
+    if len(msg.command) < 2:
+        return await msg.reply("Usage: /play song name")
 
-    query = " ".join(message.command[1:])
-
-    msg = await message.reply_text(
-        "🔍 Searching audio..."
-    )
+    query = " ".join(msg.command[1:])
+    wait = await msg.reply("🔍 Searching...")
 
     try:
-
         title, stream = yt_search(query)
 
-        await call_py.join_group_call(
-            message.chat.id,
-            AudioPiped(
-                stream,
-                HighQualityAudio()
-            )
+        await call.join_group_call(
+            msg.chat.id,
+            AudioPiped(stream, HighQualityAudio())
         )
 
-        await msg.edit_text(
-            f"🎵 Playing Audio:\n\n{title}"
-        )
+        await wait.edit(f"🎵 Playing Audio:\n{title}")
 
     except Exception as e:
+        await wait.edit(f"❌ Error:\n{e}")
 
-        await msg.edit_text(
-            f"❌ Error:\n{e}"
-        )
-
-
-# ================= VIDEO PLAY =================
 
 @app.on_message(filters.command("vplay"))
-async def vplay(_, message):
+async def vplay(_, msg):
 
-    if len(message.command) < 2:
-        return await message.reply_text(
-            "Usage:\n/vplay song name"
-        )
+    if len(msg.command) < 2:
+        return await msg.reply("Usage: /vplay song name")
 
-    query = " ".join(message.command[1:])
-
-    msg = await message.reply_text(
-        "🔍 Searching video..."
-    )
+    query = " ".join(msg.command[1:])
+    wait = await msg.reply("🔍 Searching video...")
 
     try:
-
         title, stream = yt_search(query)
 
-        await call_py.join_group_call(
-            message.chat.id,
+        await call.join_group_call(
+            msg.chat.id,
             AudioVideoPiped(
                 stream,
                 HighQualityAudio(),
@@ -147,52 +93,29 @@ async def vplay(_, message):
             )
         )
 
-        await msg.edit_text(
-            f"📺 Playing Video:\n\n{title}"
-        )
+        await wait.edit(f"📺 Playing Video:\n{title}")
 
     except Exception as e:
+        await wait.edit(f"❌ Error:\n{e}")
 
-        await msg.edit_text(
-            f"❌ Error:\n{e}"
-        )
-
-
-# ================= STOP =================
 
 @app.on_message(filters.command("stop"))
-async def stop(_, message):
-
+async def stop(_, msg):
     try:
-
-        await call_py.leave_group_call(
-            message.chat.id
-        )
-
-        await message.reply_text(
-            "⏹ Stream stopped."
-        )
-
+        await call.leave_group_call(msg.chat.id)
+        await msg.reply("⏹ Stopped")
     except Exception as e:
-
-        await message.reply_text(
-            f"❌ Error:\n{e}"
-        )
+        await msg.reply(f"Error: {e}")
 
 
 # ================= MAIN =================
 
 async def main():
-
     await app.start()
-
-    await call_py.start()
-
-    print("🎵 VC Player Bot Started")
-
+    await call.start()
+    print("Bot Started")
     await idle()
-
     await app.stop()
 
-
+import asyncio
 asyncio.get_event_loop().run_until_complete(main())
