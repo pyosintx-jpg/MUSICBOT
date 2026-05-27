@@ -5,10 +5,16 @@ from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineK
 from pyrogram.errors import UserNotParticipant
 from pyrogram.enums import ChatType
 
-# ==================== py-tgcalls Correct Imports ====================
+# ==================== py-tgcalls Imports (Fixed) ====================
 from pytgcalls import PyTgCalls
-from pytgcalls.types.input_stream import AudioPiped
-from pytgcalls.types.input_stream.quality import HighQualityAudio
+try:
+    from pytgcalls.types.input_stream import AudioPiped
+    from pytgcalls.types.input_stream.quality import HighQualityAudio
+except ImportError:
+    # Fallback for some versions
+    from pytgcalls.types import AudioPiped
+    from pytgcalls.types import HighQualityAudio
+
 from pytgcalls.types import Update
 
 import yt_dlp
@@ -221,7 +227,6 @@ async def play(_, m: Message):
         await msg.edit(f"❌ Error: {str(e)[:150]}")
 
 
-# Rest of the handlers (skip, pause, resume, stop, queue) same as previous version
 @app.on_message(filters.command(["skip"]))
 async def skip(_, m: Message):
     if m.chat.id in active:
